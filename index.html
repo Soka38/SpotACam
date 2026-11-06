@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Carte & Champ de Vision - Collaborative</title>
+
+    <!-- CSS de Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Turf.js -->
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Bouton Info sous le bouton Connexion */
+        #infoBtn {
+            position: fixed;
+            top: 60px;
+            right: 15px;
+            z-index: 3000;
+            background: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        /* Bouton Signalements (visible uniquement en superadmin, placé sous le bouton info) */
+        #sigBtn {
+            position: fixed;
+            top: 105px;
+            right: 15px;
+            z-index: 3000;
+            background: #e74c3c;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none; /* Caché par défaut */
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #authBar {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            z-index: 3000;
+            background: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 4000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 380px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            position: relative;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 12px;
+            right: 15px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #888;
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        .close-btn:hover { color: #000; }
+
+        .modal-content h3 { margin-top: 0; padding-right: 25px; font-size: 18px; }
+        .modal-content label { display: block; margin-top: 12px; margin-bottom: 6px; font-weight: bold; font-size: 14px; }
+        .modal-content select, .modal-content textarea { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+
+        .btn-orientation { width: 100%; margin-top: 10px; padding: 10px; background-color: #e67e22; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .btn-obstacle { width: 100%; margin-top: 8px; padding: 10px; background-color: #8e44ad; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .modal-content button.btn-valider { width: 100%; margin-top: 15px; padding: 12px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 15px; }
+        .modal-content button.btn-valider:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+
+        #floatingActionControls {
+            display: none;
+            position: fixed;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3000;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            gap: 12px;
+            align-items: center;
+        }
+
+        .btn-action-style { padding: 10px 18px; border: none; border-radius: 20px; font-weight: bold; cursor: pointer; font-size: 14px; color: white; }
+        #btnValiderOrientation { background-color: #27ae60; }
+        #btnValiderTraceObstacle { background-color: #8e44ad; }
+        #btnContinuerTrace { background-color: #2980b9; display: none; }
+        #btnTerminerTrace { background-color: #27ae60; display: none; }
+        #btnAnnulerAction { background-color: #c0392b; }
+
+        /* Style spécifique pour la modale des signalements */
+        .sig-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-left: 4px solid #e74c3c;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .sig-item:hover {
+            background: #fadbd8;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <!-- Bouton d'information -->
+    <div id="infoBtn" onclick="ouvrirInfoModal()">ℹ️</div>
+
+    <!-- Bouton Signalements (Superadmin uniquement) -->
+    <div id="sigBtn" onclick="alerterSignalements()" title="Voir les signalements">⚠️</div>
+
+    <div id="authBar" onclick="demanderConnexion()">
+        🔐 <span id="authStatusText">Connexion</span>
+    </div>
+
+    <!-- Modale Information -->
+    <div id="modalInfo" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="fermerInfoModal()">&times;</span>
+            <h3>À propos de SpotACam</h3>
+            <p style="font-size: 14px; line-height: 1.5; color: #444;">
+                Bienvenue sur la première version de la nouvelle app <strong>SpotACam</strong>, une carte collaborative pour recenser les caméras de vidéosurveillance sur Grenoble et ses environs. L'idée est de permettre à toustes d'évoluer à l'abri des regards indiscrets de la répression, en présentant une carte des zones filmées par les caméras publiques et privées. Les zones concernées sont marquées en rouge.
+            </p>
+            
+            <p style="font-size: 14px; line-height: 1.5; color: #444; margin-bottom: 5px;">
+                Il est pour le moment question de trois types de caméras :
+            </p>
+            
+            <ul style="font-size: 13px; line-height: 1.6; color: #444; padding-left: 20px; margin-top: 5px;">
+                <li><strong>Dôme fixe (15m, 110°) :</strong> Classiques des parkings et des lieux restreints.</li>
+                <li><strong>Tube (25m, 70°) :</strong> Possédant une petite casquette au bout, elles créent des tunnels de vision, notamment dans les rues étroites.</li>
+                <li><strong>PTZ motorisée (100m, 360°) :</strong> Permettent de zoomer et de se focaliser sur des objets dans toutes les directions et à longue portée.</li>
+            </ul>
+
+            <p style="font-size: 13px; line-height: 1.5; color: #666; font-style: italic; margin-top: 10px;">
+                Cette carte n'est pas forcément complète, mais pourra permettre d'éviter certaines zones.
+            </p>
+        </div>
+    </div>
+
+    <!-- Modale Liste des Signalements Superadmin -->
+    <div id="modalSignalements" class="modal">
+        <div class="modal-content" style="max-width: 420px; max-height: 80vh; overflow-y: auto;">
+            <span class="close-btn" onclick="fermerModalSignalements()">&times;</span>
+            <h3>⚠️ Signalements non lus</h3>
+            <div id="listeSignalementsContainer"></div>
+            <button onclick="marquerTousSignalementsLus()" style="width: 100%; margin-top: 12px; padding: 10px; background-color: #27ae60; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Tout marquer comme lu</button>
+        </div>
+    </div>
+
+    <div id="floatingActionControls">
+        <span id="actionInstruction" style="font-size: 13px; font-weight: bold; color: #333;">Glissez le cône pour l'orienter</span>
+        <button class="btn-action-style" id="btnValiderOrientation" onclick="validerOrientationInteractive()">Valider</button>
+        <button class="btn-action-style" id="btnValiderTraceObstacle" onclick="terminerTraceObstacle()">Valider forme</button>
+        <button class="btn-action-style" id="btnContinuerTrace" onclick="continuerNouveauTrace()">OUI</button>
+        <button class="btn-action-style" id="btnTerminerTrace" onclick="fermerTraceObstacleDefinitif()">NON TERMINER</button>
+        <button class="btn-action-style" id="btnAnnulerAction" onclick="annulerActionEnCours()">Annuler</button>
+    </div>
+
+    <div id="modalForm" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="fermerModal()">&times;</span>
+            <h3 id="modalTitle">Placer une cam</h3>
+            
+            <label for="typeVue">Type de cam :</label>
+            <select id="typeVue" onchange="gererChangementType()">
+                <option value="Dôme">Dôme Fixe (15m - 110°)</option>
+                <option value="Tube">Tube (25m - 70°)</option>
+                <option value="360">PTZ motorisée (100m - 360°)</option>
+            </select>
+            
+            <div id="divOrientationBtn">
+                <button type="button" class="btn-orientation" onclick="demarrerOrientationInteractive()">🧭 Orienter sur la carte (<span id="txtOrientation">Non fait</span>)</button>
+            </div>
+
+            <div>
+                <button type="button" class="btn-obstacle" onclick="demarrerTracéObstacle()">🧱 Ajouter un angle mort</button>
+            </div>
+
+            <label for="commentaire">Commentaire :</label>
+            <textarea id="commentaire" rows="3" placeholder="Saisissez vos observations ici..."></textarea>
+
+            <button id="btnValider" class="btn-valider" onclick="validerPoint()" disabled>Enregistrer le point</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // ================= CONFIGURATION SUPABASE =================
+        const SUPABASE_URL = 'https://mcnaxtxzuboxjgdqbtkg.supabase.co';        
+        const SUPABASE_ANON_KEY = 'sb_publishable_1hsFZRS769HJMWfsCrc9Ww_J3niiL0j'; 
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // ========================================================
+
+        // EMPREINTES HASH SHA-256 DES MOTS DE PASSE
+        // Admin (su2)      => AdminSecu2026!
+        // Superadmin (su1) => SuperAdmin2026!
+        const HASH_SU2 = '9ca0fb83718b66f5fcbd88bbf990cb1ef1cdb857fe58f4323fea41a2c1741ed2'; 
+        const HASH_SU1 = '4a7372bd055b0d93fbd42915bd03a7d6a58c81f9e0be5ac9fe8f57c2b5c359b5';
+
+        async function hashPassword(str) {
+            const buffer = new TextEncoder().encode(str);
+            const digest = await crypto.subtle.digest('SHA-256', buffer);
+            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function ouvrirInfoModal() { document.getElementById('modalInfo').style.display = 'flex'; }
+        function fermerInfoModal() { document.getElementById('modalInfo').style.display = 'none'; }
+        function fermerModalSignalements() { document.getElementById('modalSignalements').style.display = 'none'; }
+
+        var map = L.map('map', {tap: false, maxZoom: 22}).setView([45.1885, 5.7245], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 22,
+            maxNativeZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        var latClic = 0;
+        var lngClic = 0;
+        var orientationActuelle = 0;
+        var orientationFaite = false;
+        
+        var modeOrientationInteractiva = false;
+        var enTrainDeGlisser = false; 
+        var modeTraceEnCours = false;
+        var markerTemporaire = null;
+        var polygoneEnCours = null;
+        
+        var obstaclesManuels = [];
+        var pointsTraceCourant = [];
+        var polygoneTraceTemp = null;
+
+        var markersGroup = [];
+        var editionId = null;
+
+        var roleActuel = sessionStorage.getItem('roleUser') || 'public';
+        mettreAJourInterfaceRole();
+
+        async function demanderConnexion() {
+            if (roleActuel !== 'public') {
+                if (confirm("Voulez-vous vous déconnecter ?")) {
+                    sessionStorage.removeItem('roleUser');
+                    roleActuel = 'public';
+                    mettreAJourInterfaceRole();
+                    rafraichirCarteComplete();
+                    alert("Vous êtes déconnecté.");
+                }
+                return;
+            }
+
+            var code = prompt("Entrez un code d'accès administrateur :");
+            if (!code) return;
+
+            var inputHash = await hashPassword(code);
+
+            if (inputHash === HASH_SU2) {
+                sessionStorage.setItem('roleUser', 'su2');
+                roleActuel = 'su2';
+                alert("Connecté en tant que Superutilisateur 2.");
+                rafraichirCarteComplete();
+            } else if (inputHash === HASH_SU1) {
+                sessionStorage.setItem('roleUser', 'su1');
+                roleActuel = 'su1';
+                rafraichirCarteComplete();
+                alerterSignalements();
+            } else {
+                alert("Code incorrect.");
+            }
+            mettreAJourInterfaceRole();
+        }
+
+        function mettreAJourInterfaceRole() {
+            var txt = "Connexion";
+            if (roleActuel === 'su2') txt = "Mode Admin (Édition)";
+            if (roleActuel === 'su1') txt = "Mode Superadmin (Signalements)";
+            document.getElementById('authStatusText').innerText = txt;
+
+            var sigBtn = document.getElementById('sigBtn');
+            if (roleActuel === 'su1') {
+                sigBtn.style.display = 'flex';
+            } else {
+                sigBtn.style.display = 'none';
+            }
+        }
+
+        async function alerterSignalements() {
+            var { data: sigs, error } = await _supabase.from('signalements').select('*, cameras(*)').eq('lu', false);
+            if (error) { alert("Erreur de chargement des signalements"); return; }
+            
+            if (sigs.length === 0) {
+                alert("Aucun nouveau signalement pour le moment.");
+                return;
+            }
+
+            var container = document.getElementById('listeSignalementsContainer');
+            container.innerHTML = '';
+
+            sigs.forEach((s) => {
+                var camInfo = s.cameras ? (s.cameras.commentaire || 'Caméra sans commentaire') : 'Caméra supprimée';
+                var div = document.createElement('div');
+                div.className = 'sig-item';
+                div.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; font-size: 13px; color: #2c3e50;">📷 ${camInfo}</div>
+                            <div style="font-size: 13px; color: #c0392b; margin-top: 4px;"><strong>Motif :</strong> ${s.motif}</div>
+                            <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">📍 Cliquer pour géolocaliser sur la carte</div>
+                        </div>
+                        <button onclick="marquerSignalementLu('${s.id}', event)" style="background: #27ae60; color: white; border: none; padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; margin-left: 8px;" title="Marquer comme lu">Lu ✓</button>
+                    </div>
+                `;
+                div.onclick = function() {
+                    if (s.cameras) {
+                        fermerModalSignalements();
+                        focaliserSurCamera(s.cameras.id);
+                    } else {
+                        alert("Cette caméra n'existe plus dans la base de données.");
+                    }
+                };
+                container.appendChild(div);
+            });
+
+            document.getElementById('modalSignalements').style.display = 'flex';
+        }
+
+        async function marquerSignalementLu(id, event) {
+            event.stopPropagation(); // Empêche de déclencher le clic sur le bloc (qui amènerait sur la carte)
+            var { error } = await _supabase.from('signalements').update({ lu: true }).eq('id', id);
+            if (!error) {
+                alerterSignalements(); // Rafraîchit la liste des signalements
+            } else {
+                alert("Erreur lors de la mise à jour du signalement.");
+            }
+        }
+
+        async function marquerTousSignalementsLus() {
+            await _supabase.from('signalements').update({ lu: true }).eq('lu', false);
+            alert("Signalements archivés !");
+            fermerModalSignalements();
+        }
+
+        function focaliserSurCamera(cameraId) {
+            var item = markersGroup.find(m => m.id === cameraId);
+            if (item) {
+                if (!map.hasLayer(item.marker)) item.marker.addTo(map);
+                map.setView([item.lat, item.lng], 19);
+                item.marker.openPopup();
+
+                // Animation / Changement temporaire des cônes en BLEU (#3498db) au clic sur un signalement
+                if (item.polygones) {
+                    item.polygones.forEach(poly => {
+                        poly.setStyle({ color: '#3498db', fillColor: '#85c1e9', fillOpacity: 0.85, weight: 3 });
+                    });
+                    setTimeout(() => {
+                        item.polygones.forEach(poly => {
+                            poly.setStyle({
+                                color: '#e74c3c',
+                                fillColor: '#f1948a',
+                                fillOpacity: 0.5,
+                                weight: 1
+                            });
+                        });
+                    }, 4000);
+                }
+            } else {
+                alert("Caméra introuvable sur la carte.");
+            }
+        }
+
+        map.on('zoomend', function() { gererVisibiliteMarqueurs(); });
+
+        function gererVisibiliteMarqueurs() {
+            var zoomActuel = map.getZoom();
+            markersGroup.forEach(item => {
+                if (zoomActuel >= 17) {
+                    if (!map.hasLayer(item.marker)) item.marker.addTo(map);
+                } else {
+                    if (map.hasLayer(item.marker)) map.removeLayer(item.marker);
+                }
+            });
+        }
+
+        map.on('click', function(e) {
+            if (modeTraceEnCours) {
+                pointsTraceCourant.push([e.latlng.lat, e.latlng.lng]);
+                if (polygoneTraceTemp) map.removeLayer(polygoneTraceTemp);
+                if (pointsTraceCourant.length >= 2) {
+                    polygoneTraceTemp = L.polygon(pointsTraceCourant, {color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.5}).addTo(map);
+                }
+                document.getElementById('actionInstruction').innerText = "Points : " + pointsTraceCourant.length;
+                return;
+            }
+
+            if (modeOrientationInteractiva) {
+                enTrainDeGlisser = !enTrainDeGlisser;
+                if (!enTrainDeGlisser) validerOrientationInteractive();
+                return;
+            }
+
+            // su1 et su2 ont les droits de modification/ajout
+            if (roleActuel !== 'su2' && roleActuel !== 'su1') {
+                if (roleActuel === 'public') {
+                    alert("Connectez-vous avec un compte administrateur pour ajouter ou modifier des cam.");
+                }
+                return;
+            }
+
+            if (!editionId) {
+                latClic = e.latlng.lat;
+                lngClic = e.latlng.lng;
+                orientationActuelle = 0;
+                orientationFaite = false;
+                document.getElementById('txtOrientation').innerText = 'Non fait';
+                document.getElementById('modalTitle').innerText = 'Placer une cam';
+                document.getElementById('commentaire').value = '';
+                document.getElementById('modalForm').style.display = 'flex';
+                gererChangementType();
+            } else {
+                latClic = e.latlng.lat;
+                lngClic = e.latlng.lng;
+                if (markerTemporaire) {
+                    markerTemporaire.setLatLng([latClic, lngClic]);
+                } else {
+                    markerTemporaire = L.circleMarker([latClic, lngClic], {
+                        radius: 8, color: '#f39c12', fillColor: '#f1c40f', fillOpacity: 1
+                    }).addTo(map);
+                }
+                document.getElementById('modalForm').style.display = 'flex';
+            }
+        });
+
+        map.on('mousedown', function(e) { if (modeOrientationInteractiva) enTrainDeGlisser = true; });
+        map.on('mouseup', function(e) { if (modeOrientationInteractiva) enTrainDeGlisser = false; });
+
+        map.on('mousemove', function(e) {
+            if (modeOrientationInteractiva && enTrainDeGlisser) {
+                var dLat = e.latlng.lat - latClic;
+                var dLng = e.latlng.lng - lngClic;
+                var latRad = latClic * (Math.PI / 180);
+                var dx = dLng * Math.cos(latRad);
+                var dy = dLat;
+                var rad = Math.atan2(dy, dx);
+                var deg = rad * (180 / Math.PI);
+                var cap = 90 - deg;
+                if (cap < 0) cap += 360;
+                if (cap >= 360) cap -= 360;
+                orientationActuelle = Math.round(cap);
+                mettreAJourConeInteractif();
+            }
+        });
+
+        function fermerModal() {
+            document.getElementById('modalForm').style.display = 'none';
+            modeOrientationInteractiva = false;
+            enTrainDeGlisser = false;
+            editionId = null;
+            map.dragging.enable();
+            if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
+            if (polygoneEnCours && !orientationFaite) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+        }
+
+        function gererChangementType() {
+            var type = document.getElementById('typeVue').value;
+            var divBtn = document.getElementById('divOrientationBtn');
+            
+            if (type === '360') {
+                divBtn.style.display = 'none';
+                orientationFaite = true;
+            } else {
+                divBtn.style.display = 'block';
+                if (document.getElementById('txtOrientation').innerText === 'Non fait') orientationFaite = false;
+            }
+            verifierActivationBouton();
+        }
+
+        function verifierActivationBouton() {
+            var btnValider = document.getElementById('btnValider');
+            if (orientationFaite) btnValider.removeAttribute('disabled');
+            else btnValider.setAttribute('disabled', 'true');
+        }
+
+        function demarrerOrientationInteractive() {
+            document.getElementById('modalForm').style.display = 'none';
+            modeOrientationInteractiva = true;
+            enTrainDeGlisser = false;
+            map.dragging.disable();
+            document.getElementById('btnValiderOrientation').style.display = 'inline-block';
+            document.getElementById('btnValiderTraceObstacle').style.display = 'none';
+            document.getElementById('btnContinuerTrace').style.display = 'none';
+            document.getElementById('btnTerminerTrace').style.display = 'none';
+            document.getElementById('actionInstruction').innerText = "Glissez sur l'écran pour orienter le cône";
+            document.getElementById('floatingActionControls').style.display = 'flex';
+
+            if (markerTemporaire) map.removeLayer(markerTemporaire);
+            markerTemporaire = L.circleMarker([latClic, lngClic], { radius: 8, color: '#2980b9', fillColor: '#3498db', fillOpacity: 1 }).addTo(map);
+            mettreAJourConeInteractif();
+        }
+
+        function mettreAJourConeInteractif() {
+            var typeVue = document.getElementById('typeVue').value;
+            let porteeMax = (typeVue === 'Dôme') ? 15 : (typeVue === 'Tube' ? 25 : 100);
+            if (polygoneEnCours) map.removeLayer(polygoneEnCours);
+
+            // Cône de prévisualisation en rouge par défaut
+            if (typeVue === '360') {
+                polygoneEnCours = L.circle([latClic, lngClic], {
+                    radius: porteeMax, color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.4, weight: 1
+                }).addTo(map);
+            } else {
+                let angleVue = (typeVue === 'Dôme') ? 110 : 70;
+                let coordsSecteur = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
+                polygoneEnCours = L.polygon(coordsSecteur, {
+                    color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.5, weight: 1
+                }).addTo(map);
+            }
+        }
+
+        function validerOrientationInteractive() {
+            modeOrientationInteractiva = false;
+            enTrainDeGlisser = false;
+            map.dragging.enable();
+            document.getElementById('floatingActionControls').style.display = 'none';
+            document.getElementById('txtOrientation').innerText = orientationActuelle + '°';
+            orientationFaite = true;
+            verifierActivationBouton();
+            if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
+            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            document.getElementById('modalForm').style.display = 'flex';
+        }
+
+        function demarrerTracéObstacle() {
+            document.getElementById('modalForm').style.display = 'none';
+            modeTraceEnCours = true;
+            document.getElementById('btnValiderOrientation').style.display = 'none';
+            document.getElementById('btnValiderTraceObstacle').style.display = 'inline-block';
+            document.getElementById('btnContinuerTrace').style.display = 'none';
+            document.getElementById('btnTerminerTrace').style.display = 'none';
+            document.getElementById('actionInstruction').innerText = "Touchez pour former l'obstacle";
+            document.getElementById('floatingActionControls').style.display = 'flex';
+            pointsTraceCourant = [];
+            mettreAJourConeInteractif();
+        }
+
+        function terminerTraceObstacle() {
+            if (pointsTraceCourant.length < 3) { alert("Veuillez toucher la carte au moins 3 fois."); return; }
+            obstaclesManuels.push(pointsTraceCourant);
+            L.polygon(pointsTraceCourant, {color: '#8e44ad', fillColor: '#9b59b6', fillOpacity: 0.6}).addTo(map);
+            if (polygoneTraceTemp) { map.removeLayer(polygoneTraceTemp); polygoneTraceTemp = null; }
+            pointsTraceCourant = [];
+            mettreAJourConeInteractif();
+            document.getElementById('btnValiderTraceObstacle').style.display = 'none';
+            document.getElementById('btnContinuerTrace').style.display = 'inline-block';
+            document.getElementById('btnTerminerTrace').style.display = 'inline-block';
+            document.getElementById('actionInstruction').innerText = "Ajouter un autre angle mort ?";
+        }
+
+        function continuerNouveauTrace() {
+            document.getElementById('btnContinuerTrace').style.display = 'none';
+            document.getElementById('btnTerminerTrace').style.display = 'none';
+            document.getElementById('btnValiderTraceObstacle').style.display = 'inline-block';
+            document.getElementById('actionInstruction').innerText = "Touchez pour former l'obstacle";
+        }
+
+        function fermerTraceObstacleDefinitif() {
+            modeTraceEnCours = false;
+            document.getElementById('floatingActionControls').style.display = 'none';
+            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            document.getElementById('modalForm').style.display = 'flex';
+        }
+
+        function annulerActionEnCours() {
+            modeOrientationInteractiva = false;
+            enTrainDeGlisser = false;
+            modeTraceEnCours = false;
+            map.dragging.enable();
+            document.getElementById('floatingActionControls').style.display = 'none';
+            if (polygoneTraceTemp) { map.removeLayer(polygoneTraceTemp); polygoneTraceTemp = null; }
+            if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
+            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            document.getElementById('modalForm').style.display = 'flex';
+        }
+
+        chargerPointsSauvegardes();
+
+        async function validerPoint() {
+            var typeVue = document.getElementById('typeVue').value;
+            var commentaire = document.getElementById('commentaire').value || "Aucun commentaire";
+
+            let porteeMax = (typeVue === 'Dôme') ? 15 : (typeVue === 'Tube' ? 25 : 100);
+            let currentFeature;
+            let camPoint = [lngClic, latClic];
+
+            if (typeVue === '360') {
+                let options = { steps: 64, units: 'meters' };
+                let circle = turf.circle(camPoint, porteeMax, options);
+                currentFeature = circle;
+            } else {
+                let angleVue = (typeVue === 'Dôme') ? 110 : 70;
+                let rawCoords = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
+                let turfCoords = rawCoords.map(c => [c[1], c[0]]);
+                if (turfCoords.length > 0 && (turfCoords[0][0] !== turfCoords[turfCoords.length - 1][0] || turfCoords[0][1] !== turfCoords[turfCoords.length - 1][1])) {
+                    turfCoords.push(turfCoords[0]);
+                }
+                currentFeature = turf.polygon([turfCoords]);
+            }
+
+            obstaclesManuels.forEach(obs => {
+                let turfObsCoords = obs.map(c => [c[1], c[0]]);
+                if (turfObsCoords.length > 0 && (turfObsCoords[0][0] !== turfObsCoords[turfObsCoords.length - 1][0] || turfObsCoords[0][1] !== turfObsCoords[turfObsCoords.length - 1][1])) {
+                    turfObsCoords.push(turfObsCoords[0]);
+                }
+                let polyObs = turf.polygon([turfObsCoords]);
+
+                try {
+                    let diff = turf.difference(currentFeature, polyObs);
+                    if (!diff) { currentFeature = null; return; }
+                    currentFeature = diff;
+                    
+                    if (typeVue !== '360') {
+                        obs.forEach((vertex, index) => {
+                            let nextVertex = obs[(index + 1) % obs.length];
+                            let v1 = [vertex[1], vertex[0]];     
+                            let v2 = [nextVertex[1], nextVertex[0]]; 
+                            let ext1 = projectPointAway(camPoint, v1, porteeMax * 2);
+                            let ext2 = projectPointAway(camPoint, v2, porteeMax * 2);
+                            let shadowQuad = turf.polygon([[v1, v2, ext2, ext1, v1]]);
+                            let subDiff = turf.difference(currentFeature, shadowQuad);
+                            if (subDiff) currentFeature = subDiff;
+                        });
+                    }
+                } catch (e) { console.error("Erreur occlusion :", e); }
+            });
+
+            var anneauxFinaux = [];
+            if (currentFeature) {
+                let geom = currentFeature.geometry;
+                let polygonsGeo = (geom.type === 'MultiPolygon') ? geom.coordinates : [geom.coordinates];
+                polygonsGeo.forEach(polyCoords => {
+                    anneauxFinaux.push(polyCoords[0].map(c => [c[1], c[0]]));
+                });
+            }
+
+            var donneesPoint = {
+                lat: latClic,
+                lng: lngClic,
+                type_vue: typeVue,
+                direction: typeVue === '360' ? 0 : orientationActuelle,
+                commentaire: commentaire,
+                anneaux_finaux: anneauxFinaux
+            };
+
+            if (editionId) {
+                await _supabase.from('cameras').update(donneesPoint).eq('id', editionId);
+            } else {
+                await _supabase.from('cameras').insert([donneesPoint]);
+            }
+
+            rafraichirCarteComplete();
+            obstaclesManuels = [];
+            editionId = null;
+            document.getElementById('commentaire').value = '';
+            fermerModal();
+        }
+
+        function rafraichirCarteComplete() {
+            markersGroup.forEach(item => {
+                map.removeLayer(item.marker);
+                if (item.polygones) item.polygones.forEach(poly => map.removeLayer(poly));
+            });
+            markersGroup = [];
+            chargerPointsSauvegardes();
+        }
+
+        function genererSecteur(center, radiusMeters, centralAngleDeg, spanAngleDeg) {
+            let points = [center];
+            let earthRadius = 6378137;
+            let startAngle = centralAngleDeg - spanAngleDeg / 2;
+            let endAngle = centralAngleDeg + spanAngleDeg / 2;
+
+            for (let i = startAngle; i <= endAngle; i += 2) {
+                let rad = i * (Math.PI / 180);
+                let dx = radiusMeters * Math.sin(rad);
+                let dy = radiusMeters * Math.cos(rad);
+                let latRad = center[0] * Math.PI / 180;
+                let nextLat = center[0] + (dy / earthRadius) * (180 / Math.PI);
+                let nextLng = center[1] + (dx / (earthRadius * Math.cos(latRad))) * (180 / Math.PI);
+                points.push([nextLat, nextLng]);
+            }
+            points.push(center);
+            return points;
+        }
+
+        function projectPointAway(cam, vertex, distanceMultiplier) {
+            let bearing = turf.bearing(turf.point(cam), turf.point(vertex));
+            let destination = turf.destination(turf.point(vertex), distanceMultiplier, bearing, {units: 'meters'});
+            return destination.geometry.coordinates;
+        }
+
+        async function chargerPointsSauvegardes() {
+            var { data: pointsStockes, error } = await _supabase.from('cameras').select('*');
+            if (error) { console.error("Erreur chargement Supabase", error); return; }
+            
+            pointsStockes.forEach(function(point) {
+                afficherPointDepuisStockage(point);
+            });
+            gererVisibiliteMarqueurs();
+        }
+
+        function afficherPointDepuisStockage(point) {
+            var marker = L.marker([point.lat, point.lng]);
+
+            var boutonsAdminHTML = '';
+            if (roleActuel === 'su2' || roleActuel === 'su1') {
+                boutonsAdminHTML = `
+                    <div style="display: flex; gap: 6px; margin-top: 10px;">
+                        <button onclick="modifierPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #f39c12; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Modifier</button>
+                        <button onclick="supprimerPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #c0392b; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Supprimer</button>
+                    </div>`;
+            } else {
+                boutonsAdminHTML = `
+                    <div style="margin-top: 10px;">
+                        <button onclick="faireSignalement('${point.id}')" style="width: 100%; padding: 6px; background-color: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">⚠️ Signaler un problème</button>
+                    </div>`;
+            }
+
+            var popupHTML = `
+                <div style="font-family: sans-serif; min-width: 180px;">
+                    <b>Cam :</b> ${point.type_vue}<br>
+                    ${point.type_vue !== '360' ? `<b>Direction :</b> ${point.direction}°<br>` : ''}
+                    <p style="margin: 8px 0; background: #f9f9f9; padding: 6px; border-radius: 4px;"><b>Commentaire :</b><br>${point.commentaire}</p>
+                    ${boutonsAdminHTML}
+                </div>
+            `;
+            marker.bindPopup(popupHTML);
+
+            let polygonesAssocies = [];
+            if (point.anneaux_finaux && point.anneaux_finaux.length > 0) {
+                point.anneaux_finaux.forEach(ring => {
+                    // Cônes de vision affichés en ROUGE par défaut (#e74c3c)
+                    let poly = L.polygon(ring, {
+                        color: '#e74c3c',
+                        fillColor: '#f1948a',
+                        fillOpacity: 0.5,
+                        weight: 1
+                    }).addTo(map);
+                    polygonesAssocies.push(poly);
+                });
+            }
+
+            markersGroup.push({
+                id: point.id,
+                lat: point.lat,
+                lng: point.lng,
+                typeVue: point.type_vue,
+                marker: marker,
+                polygones: polygonesAssocies
+            });
+        }
+
+        async function faireSignalement(cameraId) {
+            var motif = prompt("Cette cam est inexistante, inexacte ? Dites le nous !");
+            if (!motif) return;
+
+            var { error } = await _supabase.from('signalements').insert([{ camera_id: cameraId, motif: motif }]);
+            if (!error) {
+                alert("Merci ! Votre signalement a bien été transmis aux administrateurs.");
+                map.closePopup();
+            } else {
+                alert("Erreur lors de l'envoi du signalement.");
+            }
+        }
+
+        async function modifierPoint(id) {
+            map.closePopup();
+            var { data: points, error } = await _supabase.from('cameras').select('*').eq('id', id);
+            if (error || points.length === 0) return;
+            var point = points[0];
+
+            editionId = id;
+            latClic = point.lat;
+            lngClic = point.lng;
+            orientationActuelle = point.direction;
+            orientationFaite = true;
+
+            document.getElementById('modalTitle').innerText = 'Modifier la cam';
+            document.getElementById('typeVue').value = point.type_vue;
+            document.getElementById('commentaire').value = point.commentaire;
+            document.getElementById('txtOrientation').innerText = orientationActuelle + '°';
+            
+            gererChangementType();
+            document.getElementById('modalForm').style.display = 'flex';
+        }
+
+        async function supprimerPoint(id) {
+            if (confirm("Voulez-vous vraiment déclarer cette caméra inexistante ? Cela supprimera le repère et sa zone couverte.")) {
+                var { error } = await _supabase.from('cameras').delete().eq('id', id);
+                if (!error) {
+                    rafraichirCarteComplete();
+                } else {
+                    alert("Erreur lors de la suppression.");
+                }
+            }
+        }
+    </script>
+</body>
+</html>
