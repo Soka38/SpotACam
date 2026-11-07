@@ -758,28 +758,28 @@
 
             obstaclesManuels.forEach(obs => {
                 let turfObsCoords = obs.map(c => [c[1], c[0]]);
-                if (turfObsCoords.length > 0 && (turfObsCoords[0][0] !== turfObsCoords[turfObsCoords.length - 1][0] || turfObsCoords[0][1] !== turfObsCoords[turfObsCoords.length - 1][1])) {
+                if (turfObsCoords.length > 0 && (turfObsCoords[0][0] !== turfObsCoords[turfCoords.length - 1][0] || turfObsCoords[0][1] !== turfObsCoords[turfCoords.length - 1][1])) {
                     turfObsCoords.push(turfObsCoords[0]);
                 }
                 let polyObs = turf.polygon([turfObsCoords]);
 
                 try {
+                    // 1. Soustraire la surface exacte de l'obstacle
                     let diff = turf.difference(currentFeature, polyObs);
                     if (!diff) { currentFeature = null; return; }
                     currentFeature = diff;
                     
-                    if (typeVue !== '360') {
-                        obs.forEach((vertex, index) => {
-                            let nextVertex = obs[(index + 1) % obs.length];
-                            let v1 = [vertex[1], vertex[0]];     
-                            let v2 = [nextVertex[1], nextVertex[0]]; 
-                            let ext1 = projectPointAway(camPoint, v1, porteeMax * 2);
-                            let ext2 = projectPointAway(camPoint, v2, porteeMax * 2);
-                            let shadowQuad = turf.polygon([[v1, v2, ext2, ext1, v1]]);
-                            let subDiff = turf.difference(currentFeature, shadowQuad);
-                            if (subDiff) currentFeature = subDiff;
-                        });
-                    }
+                    // 2. Projeter l'ombre portée derrière l'obstacle (fonctionne désormais pour Dôme, Tube ET 360°)
+                    obs.forEach((vertex, index) => {
+                        let nextVertex = obs[(index + 1) % obs.length];
+                        let v1 = [vertex[1], vertex[0]];     
+                        let v2 = [nextVertex[1], nextVertex[0]]; 
+                        let ext1 = projectPointAway(camPoint, v1, porteeMax * 2);
+                        let ext2 = projectPointAway(camPoint, v2, porteeMax * 2);
+                        let shadowQuad = turf.polygon([[v1, v2, ext2, ext1, v1]]);
+                        let subDiff = turf.difference(currentFeature, shadowQuad);
+                        if (subDiff) currentFeature = subDiff;
+                    });
                 } catch (e) { console.error("Erreur occlusion :", e); }
             });
 
