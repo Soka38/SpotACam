@@ -732,8 +732,6 @@
             document.getElementById('modalForm').style.display = 'flex';
         }
 
-        chargerPointsSauvegardes();
-
         async function validerPoint() {
             var typeVue = document.getElementById('typeVue').value;
             var commentaire = document.getElementById('commentaire').value || "Aucun commentaire";
@@ -818,80 +816,6 @@
             fermerModal();
         }
 
-            var anneauxFinaux = [];
-            if (currentFeature) {
-                let geom = currentFeature.geometry;
-                let polygonsGeo = (geom.type === 'MultiPolygon') ? geom.coordinates : [geom.coordinates];
-                polygonsGeo.forEach(polyCoords => {
-                    anneauxFinaux.push(polyCoords[0].map(c => [c[1], c[0]]));
-                });
-            }
-
-            var estValidee = (roleActuel !== 'public');
-
-            var donneesPoint = {
-                lat: latClic,
-                lng: lngClic,
-                type_vue: typeVue,
-                direction: typeVue === '360' ? 0 : orientationActuelle,
-                commentaire: commentaire,
-                anneaux_finaux: anneauxFinaux,
-                validee: estValidee
-            };
-
-            if (editionId) {
-                await _supabase.from('cameras').update(donneesPoint).eq('id', editionId);
-            } else {
-                await _supabase.from('cameras').insert([donneesPoint]);
-                if (!estValidee) {
-                    alert("Merci ! Votre caméra a été ajoutée. Elle est directement affichée en orange sur la carte et attend d'être validée par un administrateur.");
-                }
-            }
-
-            rafraichirCarteComplete();
-            obstaclesManuels = [];
-            editionId = null;
-            document.getElementById('commentaire').value = '';
-            fermerModal();
-        }
-
-            var anneauxFinaux = [];
-            if (currentFeature) {
-                let geom = currentFeature.geometry;
-                let polygonsGeo = (geom.type === 'MultiPolygon') ? geom.coordinates : [geom.coordinates];
-                polygonsGeo.forEach(polyCoords => {
-                    anneauxFinaux.push(polyCoords[0].map(c => [c[1], c[0]]));
-                });
-            }
-
-            var estValidee = (roleActuel !== 'public');
-
-            var donneesPoint = {
-                lat: latClic,
-                lng: lngClic,
-                type_vue: typeVue,
-                direction: typeVue === '360' ? 0 : orientationActuelle,
-                commentaire: commentaire,
-                anneaux_finaux: anneauxFinaux,
-                validee: estValidee
-            };
-
-            if (editionId) {
-                await _supabase.from('cameras').update(donneesPoint).eq('id', editionId);
-            } else {
-                await _supabase.from('cameras').insert([donneesPoint]);
-                if (!estValidee) {
-                    alert("Merci ! Votre caméra a été ajoutée. Elle est directement affichée en orange sur la carte et attend d'être validée par un administrateur.");
-                }
-            }
-
-            rafraichirCarteComplete();
-            obstaclesManuels = [];
-            editionId = null;
-            document.getElementById('commentaire').value = '';
-            fermerModal();
-        }
-
         function rafraichirCarteComplete() {
             markersGroup.forEach(item => {
                 map.removeLayer(item.marker);
@@ -937,7 +861,6 @@
         }
 
         function afficherPointDepuisStockage(point) {
-            // Attribution de l'icône selon la validation (Orange si en attente, Rouge si validée)
             var markerIcon = point.validee ? redIcon : orangeIcon;
             var marker = L.marker([point.lat, point.lng], { icon: markerIcon });
 
@@ -1058,6 +981,9 @@
                 }
             }
         }
+
+        // Lancement initial sans await global
+        chargerPointsSauvegardes();
     </script>
 </body>
 </html>
