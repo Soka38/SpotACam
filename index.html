@@ -57,13 +57,33 @@
             user-select: none;
         }
 
-        /* Bouton Signalements (visible uniquement en superadmin, placé sous le bouton info) */
+        /* Bouton Signalements (visible uniquement en superadmin) */
         #sigBtn {
             position: fixed;
             top: 105px;
             right: 15px;
             z-index: 3000;
             background: #e74c3c;
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none; /* Caché par défaut */
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        /* Bouton Modération / Caméras en attente (visible uniquement en superadmin) */
+        #pendingBtn {
+            position: fixed;
+            top: 150px;
+            right: 15px;
+            z-index: 3000;
+            background: #e67e22;
             color: white;
             width: 36px;
             height: 36px;
@@ -158,7 +178,7 @@
         #btnTerminerTrace { background-color: #27ae60; display: none; }
         #btnAnnulerAction { background-color: #c0392b; }
 
-        /* Style spécifique pour la modale des signalements */
+        /* Style des éléments dans les modales de modération */
         .sig-item {
             background: #f8f9fa;
             border: 1px solid #e9ecef;
@@ -172,6 +192,19 @@
         .sig-item:hover {
             background: #fadbd8;
         }
+        .pending-item {
+            background: #fff8ec;
+            border: 1px solid #fdebd0;
+            border-left: 4px solid #e67e22;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .pending-item:hover {
+            background: #fdebd0;
+        }
     </style>
 </head>
 <body>
@@ -184,6 +217,9 @@
     <!-- Bouton Signalements (Superadmin uniquement) -->
     <div id="sigBtn" onclick="alerterSignalements()" title="Voir les signalements">⚠️</div>
 
+    <!-- Bouton Caméras en attente (Superadmin uniquement) -->
+    <div id="pendingBtn" onclick="ouvrirCamEnAttente()" title="Caméras à valider">⏳</div>
+
     <div id="authBar" onclick="demanderConnexion()">
         🔐 <span id="authStatusText">Connexion</span>
     </div>
@@ -194,7 +230,7 @@
             <span class="close-btn" onclick="fermerInfoModal()">&times;</span>
             <h3>À propos de SpotACam</h3>
             <p style="font-size: 14px; line-height: 1.5; color: #444;">
-                Bienvenue sur la première version de la nouvelle app <strong>SpotACam</strong>, une carte collaborative pour recenser les caméras de vidéosurveillance sur Grenoble et ses environs. L'idée est de permettre à toustes d'évoluer à l'abri des regards indiscrets de la répression, en présentant une carte des zones filmées par les caméras publiques et privées. Les zones concernées sont marquées en rouge.
+                Bienvenue sur <strong>SpotACam</strong>, la carte collaborative pour recenser les caméras de vidéosurveillance sur Grenoble et ses environs. Les zones validées sont en rouge, les zones suggérées par la communauté en attente de modération sont en orange.
             </p>
             
             <p style="font-size: 14px; line-height: 1.5; color: #444; margin-bottom: 5px;">
@@ -206,10 +242,6 @@
                 <li><strong>Tube (25m, 70°) :</strong> Possédant une petite casquette au bout, elles créent des tunnels de vision, notamment dans les rues étroites.</li>
                 <li><strong>PTZ motorisée (100m, 360°) :</strong> Permettent de zoomer et de se focaliser sur des objets dans toutes les directions et à longue portée.</li>
             </ul>
-
-            <p style="font-size: 13px; line-height: 1.5; color: #666; font-style: italic; margin-top: 10px;">
-                Cette carte n'est pas forcément complète, mais pourra permettre d'éviter certaines zones.
-            </p>
         </div>
     </div>
 
@@ -220,6 +252,15 @@
             <h3>⚠️ Signalements non lus</h3>
             <div id="listeSignalementsContainer"></div>
             <button onclick="marquerTousSignalementsLus()" style="width: 100%; margin-top: 12px; padding: 10px; background-color: #27ae60; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Tout marquer comme lu</button>
+        </div>
+    </div>
+
+    <!-- Modale Caméras en Attente Superadmin -->
+    <div id="modalPending" class="modal">
+        <div class="modal-content" style="max-width: 420px; max-height: 80vh; overflow-y: auto;">
+            <span class="close-btn" onclick="fermerModalPending()">&times;</span>
+            <h3>⏳ Caméras à valider</h3>
+            <div id="listePendingContainer"></div>
         </div>
     </div>
 
@@ -268,9 +309,6 @@
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         // ========================================================
 
-        // EMPREINTES HASH SHA-256 DES MOTS DE PASSE
-        // Admin (su2)      => AdminSecu2026!
-        // Superadmin (su1) => SuperAdmin2026!
         const HASH_SU2 = '9ca0fb83718b66f5fcbd88bbf990cb1ef1cdb857fe58f4323fea41a2c1741ed2'; 
         const HASH_SU1 = '4a7372bd055b0d93fbd42915bd03a7d6a58c81f9e0be5ac9fe8f57c2b5c359b5';
 
@@ -280,9 +318,23 @@
             return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
+        // Définition d'icônes Leaflet personnalisées (Rouge et Orange)
+        var redIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
+        var orangeIcon = new L.Icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        });
+
         function ouvrirInfoModal() { document.getElementById('modalInfo').style.display = 'flex'; }
         function fermerInfoModal() { document.getElementById('modalInfo').style.display = 'none'; }
         function fermerModalSignalements() { document.getElementById('modalSignalements').style.display = 'none'; }
+        function fermerModalPending() { document.getElementById('modalPending').style.display = 'none'; }
 
         var map = L.map('map', {tap: false, maxZoom: 22}).setView([45.1885, 5.7245], 13);
 
@@ -349,14 +401,18 @@
         function mettreAJourInterfaceRole() {
             var txt = "Connexion";
             if (roleActuel === 'su2') txt = "Mode Admin (Édition)";
-            if (roleActuel === 'su1') txt = "Mode Superadmin (Signalements)";
+            if (roleActuel === 'su1') txt = "Mode Superadmin (Signalements & Validation)";
             document.getElementById('authStatusText').innerText = txt;
 
             var sigBtn = document.getElementById('sigBtn');
+            var pendingBtn = document.getElementById('pendingBtn');
+
             if (roleActuel === 'su1') {
                 sigBtn.style.display = 'flex';
+                pendingBtn.style.display = 'flex';
             } else {
                 sigBtn.style.display = 'none';
+                pendingBtn.style.display = 'none';
             }
         }
 
@@ -383,7 +439,7 @@
                             <div style="font-size: 13px; color: #c0392b; margin-top: 4px;"><strong>Motif :</strong> ${s.motif}</div>
                             <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">📍 Cliquer pour géolocaliser sur la carte</div>
                         </div>
-                        <button onclick="marquerSignalementLu('${s.id}', event)" style="background: #27ae60; color: white; border: none; padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; margin-left: 8px;" title="Marquer comme lu">Lu ✓</button>
+                        <button onclick="marquerSignalementLu('${s.id}', event)" style="background: #27ae60; color: white; border: none; padding: 5px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; margin-left: 8px;">Lu ✓</button>
                     </div>
                 `;
                 div.onclick = function() {
@@ -400,11 +456,45 @@
             document.getElementById('modalSignalements').style.display = 'flex';
         }
 
+        async function ouvrirCamEnAttente() {
+            var { data: cams, error } = await _supabase.from('cameras').select('*').eq('validee', false);
+            if (error) { alert("Erreur de chargement des caméras en attente"); return; }
+
+            if (cams.length === 0) {
+                alert("Aucune caméra en attente de validation.");
+                return;
+            }
+
+            var container = document.getElementById('listePendingContainer');
+            container.innerHTML = '';
+
+            cams.forEach((c) => {
+                var div = document.createElement('div');
+                div.className = 'pending-item';
+                div.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; font-size: 13px; color: #d35400;">📷 ${c.type_vue} - ${c.commentaire || 'Sans commentaire'}</div>
+                            <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">📍 Cliquer pour géolocaliser</div>
+                        </div>
+                        <button onclick="validerCamAdmin('${c.id}', event)" style="background: #27ae60; color: white; border: none; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; margin-left: 8px;">Valider ✅</button>
+                    </div>
+                `;
+                div.onclick = function() {
+                    fermerModalPending();
+                    focaliserSurCamera(c.id);
+                };
+                container.appendChild(div);
+            });
+
+            document.getElementById('modalPending').style.display = 'flex';
+        }
+
         async function marquerSignalementLu(id, event) {
-            event.stopPropagation(); // Empêche de déclencher le clic sur le bloc (qui amènerait sur la carte)
+            event.stopPropagation();
             var { error } = await _supabase.from('signalements').update({ lu: true }).eq('id', id);
             if (!error) {
-                alerterSignalements(); // Rafraîchit la liste des signalements
+                alerterSignalements();
             } else {
                 alert("Erreur lors de la mise à jour du signalement.");
             }
@@ -422,23 +512,6 @@
                 if (!map.hasLayer(item.marker)) item.marker.addTo(map);
                 map.setView([item.lat, item.lng], 19);
                 item.marker.openPopup();
-
-                // Animation / Changement temporaire des cônes en BLEU (#3498db) au clic sur un signalement
-                if (item.polygones) {
-                    item.polygones.forEach(poly => {
-                        poly.setStyle({ color: '#3498db', fillColor: '#85c1e9', fillOpacity: 0.85, weight: 3 });
-                    });
-                    setTimeout(() => {
-                        item.polygones.forEach(poly => {
-                            poly.setStyle({
-                                color: '#e74c3c',
-                                fillColor: '#f1948a',
-                                fillOpacity: 0.5,
-                                weight: 1
-                            });
-                        });
-                    }, 4000);
-                }
             } else {
                 alert("Caméra introuvable sur la carte.");
             }
@@ -474,25 +547,18 @@
                 return;
             }
 
-            // su1 et su2 ont les droits de modification/ajout
-            if (roleActuel !== 'su2' && roleActuel !== 'su1') {
-                if (roleActuel === 'public') {
-                    alert("Connectez-vous avec un compte administrateur pour ajouter ou modifier des cam.");
-                }
-                return;
-            }
-
             if (!editionId) {
                 latClic = e.latlng.lat;
                 lngClic = e.latlng.lng;
                 orientationActuelle = 0;
                 orientationFaite = false;
                 document.getElementById('txtOrientation').innerText = 'Non fait';
-                document.getElementById('modalTitle').innerText = 'Placer une cam';
+                document.getElementById('modalTitle').innerText = roleActuel === 'public' ? 'Ajouter une cam (En attente de validation)' : 'Placer une cam';
                 document.getElementById('commentaire').value = '';
                 document.getElementById('modalForm').style.display = 'flex';
                 gererChangementType();
             } else {
+                if (roleActuel === 'public') return;
                 latClic = e.latlng.lat;
                 lngClic = e.latlng.lng;
                 if (markerTemporaire) {
@@ -578,7 +644,6 @@
             let porteeMax = (typeVue === 'Dôme') ? 15 : (typeVue === 'Tube' ? 25 : 100);
             if (polygoneEnCours) map.removeLayer(polygoneEnCours);
 
-            // Cône de prévisualisation en rouge par défaut
             if (typeVue === '360') {
                 polygoneEnCours = L.circle([latClic, lngClic], {
                     radius: porteeMax, color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.4, weight: 1
@@ -717,19 +782,25 @@
                 });
             }
 
+            var estValidee = (roleActuel !== 'public');
+
             var donneesPoint = {
                 lat: latClic,
                 lng: lngClic,
                 type_vue: typeVue,
                 direction: typeVue === '360' ? 0 : orientationActuelle,
                 commentaire: commentaire,
-                anneaux_finaux: anneauxFinaux
+                anneaux_finaux: anneauxFinaux,
+                validee: estValidee
             };
 
             if (editionId) {
                 await _supabase.from('cameras').update(donneesPoint).eq('id', editionId);
             } else {
                 await _supabase.from('cameras').insert([donneesPoint]);
+                if (!estValidee) {
+                    alert("Merci ! Votre caméra a été ajoutée. Elle est directement affichée en orange sur la carte et attend d'être validée par un administrateur.");
+                }
             }
 
             rafraichirCarteComplete();
@@ -784,14 +855,23 @@
         }
 
         function afficherPointDepuisStockage(point) {
-            var marker = L.marker([point.lat, point.lng]);
+            // Attribution de l'icône selon la validation (Orange si en attente, Rouge si validée)
+            var markerIcon = point.validee ? redIcon : orangeIcon;
+            var marker = L.marker([point.lat, point.lng], { icon: markerIcon });
 
             var boutonsAdminHTML = '';
             if (roleActuel === 'su2' || roleActuel === 'su1') {
+                var boutonValidationHTML = '';
+                if (!point.validee) {
+                    boutonValidationHTML = `<button onclick="validerCamAdmin('${point.id}')" style="width: 100%; margin-bottom: 6px; padding: 6px; background-color: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">✅ Valider cette caméra</button>`;
+                }
                 boutonsAdminHTML = `
-                    <div style="display: flex; gap: 6px; margin-top: 10px;">
-                        <button onclick="modifierPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #f39c12; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Modifier</button>
-                        <button onclick="supprimerPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #c0392b; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Supprimer</button>
+                    <div style="margin-top: 10px;">
+                        ${boutonValidationHTML}
+                        <div style="display: flex; gap: 6px;">
+                            <button onclick="modifierPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #f39c12; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Modifier</button>
+                            <button onclick="supprimerPoint('${point.id}')" style="flex: 1; padding: 6px; background-color: #c0392b; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">Supprimer</button>
+                        </div>
                     </div>`;
             } else {
                 boutonsAdminHTML = `
@@ -800,9 +880,11 @@
                     </div>`;
             }
 
+            var statutTexte = point.validee ? "" : "<br><span style='color: #e67e22; font-weight: bold;'>⏳ En attente de validation</span>";
+
             var popupHTML = `
                 <div style="font-family: sans-serif; min-width: 180px;">
-                    <b>Cam :</b> ${point.type_vue}<br>
+                    <b>Cam :</b> ${point.type_vue} ${statutTexte}<br>
                     ${point.type_vue !== '360' ? `<b>Direction :</b> ${point.direction}°<br>` : ''}
                     <p style="margin: 8px 0; background: #f9f9f9; padding: 6px; border-radius: 4px;"><b>Commentaire :</b><br>${point.commentaire}</p>
                     ${boutonsAdminHTML}
@@ -810,13 +892,15 @@
             `;
             marker.bindPopup(popupHTML);
 
+            let couleurZone = point.validee ? '#e74c3c' : '#e67e22';
+            let couleurRemplissage = point.validee ? '#f1948a' : '#f8c471';
+
             let polygonesAssocies = [];
             if (point.anneaux_finaux && point.anneaux_finaux.length > 0) {
                 point.anneaux_finaux.forEach(ring => {
-                    // Cônes de vision affichés en ROUGE par défaut (#e74c3c)
                     let poly = L.polygon(ring, {
-                        color: '#e74c3c',
-                        fillColor: '#f1948a',
+                        color: couleurZone,
+                        fillColor: couleurRemplissage,
                         fillOpacity: 0.5,
                         weight: 1
                     }).addTo(map);
@@ -832,6 +916,20 @@
                 marker: marker,
                 polygones: polygonesAssocies
             });
+        }
+
+        async function validerCamAdmin(id, event) {
+            if (event) event.stopPropagation();
+            var { error } = await _supabase.from('cameras').update({ validee: true }).eq('id', id);
+            if (!error) {
+                alert("Caméra validée ! Son marqueur et son cône passent en rouge.");
+                if (document.getElementById('modalPending').style.display === 'flex') {
+                    ouvrirCamEnAttente();
+                }
+                rafraichirCarteComplete();
+            } else {
+                alert("Erreur lors de la validation.");
+            }
         }
 
         async function faireSignalement(cameraId) {
@@ -869,7 +967,7 @@
         }
 
         async function supprimerPoint(id) {
-            if (confirm("Voulez-vous vraiment déclarer cette caméra inexistante ? Cela supprimera le repère et sa zone couverte.")) {
+            if (confirm("Voulez-vous vraiment supprimer cette caméra ?")) {
                 var { error } = await _supabase.from('cameras').delete().eq('id', id);
                 if (!error) {
                     rafraichirCarteComplete();
