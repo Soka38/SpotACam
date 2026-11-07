@@ -745,7 +745,6 @@
             if (typeVue === '360') {
                 let options = { steps: 64, units: 'meters' };
                 let circle = turf.circle(camPoint, porteeMax, options);
-                // Transformation du cercle Turf en polygone exploitable pour les soustractions
                 currentFeature = turf.polygon(circle.geometry.coordinates);
             } else {
                 let angleVue = (typeVue === 'Dôme') ? 110 : 70;
@@ -765,12 +764,10 @@
                 let polyObs = turf.polygon([turfObsCoords]);
 
                 try {
-                    // 1. Soustraire la surface exacte de l'obstacle
                     let diff = turf.difference(currentFeature, polyObs);
                     if (!diff) { currentFeature = null; return; }
                     currentFeature = diff;
                     
-                    // 2. Projeter l'ombre portée derrière l'obstacle pour tous les types de caméras
                     obs.forEach((vertex, index) => {
                         let nextVertex = obs[(index + 1) % obs.length];
                         let v1 = [vertex[1], vertex[0]];     
@@ -783,6 +780,43 @@
                     });
                 } catch (e) { console.error("Erreur occlusion :", e); }
             });
+
+            var anneauxFinaux = [];
+            if (currentFeature) {
+                let geom = currentFeature.geometry;
+                let polygonsGeo = (geom.type === 'MultiPolygon') ? geom.coordinates : [geom.coordinates];
+                polygonsGeo.forEach(polyCoords => {
+                    anneauxFinaux.push(polyCoords[0].map(c => [c[1], c[0]]));
+                });
+            }
+
+            var estValidee = (roleActuel !== 'public');
+
+            var donneesPoint = {
+                lat: latClic,
+                lng: lngClic,
+                type_vue: typeVue,
+                direction: typeVue === '360' ? 0 : orientationActuelle,
+                commentaire: commentaire,
+                anneaux_finaux: anneauxFinaux,
+                validee: estValidee
+            };
+
+            if (editionId) {
+                await _supabase.from('cameras').update(donneesPoint).eq('id', editionId);
+            } else {
+                await _supabase.from('cameras').insert([donneesPoint]);
+                if (!estValidee) {
+                    alert("Merci ! Votre caméra a été ajoutée. Elle est directement affichée en orange sur la carte et attend d'être validée par un administrateur.");
+                }
+            }
+
+            rafraichirCarteComplete();
+            obstaclesManuels = [];
+            editionId = null;
+            document.getElementById('commentaire').value = '';
+            fermerModal();
+        }
 
             var anneauxFinaux = [];
             if (currentFeature) {
