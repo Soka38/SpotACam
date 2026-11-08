@@ -3,16 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SpotACam-Grenoble</title>
+    
+    <!-- Titre optimisé avec mots-clés pour le SEO -->
+    <title>SpotACam Grenoble | Carte interactive des caméras et de la vidéosurveillance</title>
 
     <!-- Balises SEO pour les moteurs de recherche -->
-    <meta name="description" content="Carte interactive et participative des cams de l'agglomération Grenobloise.">
-    <meta name="keywords" content="SpotACam, spotacam, Grenoble, caméras, vidéosurveillance, carte interactive">
+    <meta name="description" content="Découvrez SpotACam Grenoble : la carte interactive et participative pour localiser, orienter et consulter les caméras de vidéosurveillance de l'agglomération grenobloise en temps réel.">
+    <meta name="keywords" content="SpotACam, spotacam, Grenoble, caméras, vidéosurveillance, carte interactive, agglomération grenobloise, dôme, tube, PTZ">
+
+    <!-- URL Canonique -->
+    <link rel="canonical" href="https://votre-pseudo.github.io/votre-repo/">
 
     <!-- Open Graph pour les réseaux sociaux -->
-    <meta property="og:title" content="SpotACam-Grenoble">
-    <meta property="og:description" content="Carte interactive et collaborative des caméras à Grenoble.">
+    <meta property="og:title" content="SpotACam Grenoble | Carte interactive des caméras">
+    <meta property="og:description" content="Explorez la carte interactive et collaborative des caméras de l'agglomération grenobloise.">
     <meta property="og:type" content="website">
+    <meta property="og:url" content="https://votre-pseudo.github.io/votre-repo/">
+    <meta property="og:image" content="https://votre-pseudo.github.io/votre-repo/assets/apercu-partage.jpg">
 
     <!-- CSS de Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -207,11 +214,6 @@
         }
     </style>
 </head>
-<<<<
-<body>
-
-    <div id="map"></div>
-====
 <body>
 
     <!-- Bloc sémantique masqué destiné aux moteurs de recherche (SEO) pour indexer du texte brut -->
@@ -222,7 +224,6 @@
     </div>
 
     <div id="map"></div>
->>>>
 
     <!-- Bouton d'information -->
     <div id="infoBtn" onclick="ouvrirInfoModal()">ℹ️</div>
@@ -236,11 +237,12 @@
     <div id="authBar" onclick="demanderConnexion()">
         🔐 <span id="authStatusText">Connexion</span>
     </div>
-<!-- Modale Information -->
+
+    <!-- Modale Information -->
     <div id="modalInfo" class="modal">
         <div class="modal-content">
             <span class="close-btn" onclick="fermerInfoModal()">&times;</span>
-            <h3>À propos de SpotACam</h3>
+            <h3>À propos de SpotACam Grenoble</h3>
             <p style="font-size: 14px; line-height: 1.5; color: #444;">
                 Bienvenue sur <strong>SpotACam</strong>, la carte collaborative pour recenser les cams de vidéosurveillance sur Grenoble et ses environs. Les zones validées sont en rouge, les zones suggérées par la communauté en attente de modération sont en orange.
             </p>
@@ -384,6 +386,7 @@
 
         var markersGroup = [];
         var editionId = null;
+        var anneauxExistantsEdition = []; // Stocke les polygones déjà découpés lors d'une modification
 
         var roleActuel = sessionStorage.getItem('roleUser') || 'public';
         mettreAJourInterfaceRole();
@@ -575,6 +578,7 @@
                 lngClic = e.latlng.lng;
                 orientationActuelle = 0;
                 orientationFaite = false;
+                anneauxExistantsEdition = [];
                 document.getElementById('txtOrientation').innerText = 'Non fait';
                 document.getElementById('modalTitle').innerText = roleActuel === 'public' ? 'Ajouter une cam (En attente de validation)' : 'Placer une cam';
                 document.getElementById('commentaire').value = '';
@@ -620,9 +624,17 @@
             modeOrientationInteractiva = false;
             enTrainDeGlisser = false;
             editionId = null;
+            anneauxExistantsEdition = [];
             map.dragging.enable();
             if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
-            if (polygoneEnCours && !orientationFaite) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            if (polygoneEnCours) {
+                if (Array.isArray(polygoneEnCours)) {
+                    polygoneEnCours.forEach(p => map.removeLayer(p));
+                } else {
+                    map.removeLayer(polygoneEnCours);
+                }
+                polygoneEnCours = null;
+            }
         }
 
         function gererChangementType() {
@@ -649,6 +661,10 @@
             document.getElementById('modalForm').style.display = 'none';
             modeOrientationInteractiva = true;
             enTrainDeGlisser = false;
+            
+            // Si on choisit de réorienter, on efface la découpe précédente pour repartir d'un cône neuf
+            anneauxExistantsEdition = [];
+
             map.dragging.disable();
             document.getElementById('btnValiderOrientation').style.display = 'inline-block';
             document.getElementById('btnValiderTraceObstacle').style.display = 'none';
@@ -665,18 +681,38 @@
         function mettreAJourConeInteractif() {
             var typeVue = document.getElementById('typeVue').value;
             let porteeMax = (typeVue === 'Dôme') ? 15 : (typeVue === 'Tube' ? 25 : 100);
-            if (polygoneEnCours) map.removeLayer(polygoneEnCours);
+            
+            if (polygoneEnCours) {
+                if (Array.isArray(polygoneEnCours)) {
+                    polygoneEnCours.forEach(p => map.removeLayer(p));
+                } else {
+                    map.removeLayer(polygoneEnCours);
+                }
+                polygoneEnCours = null;
+            }
 
-            if (typeVue === '360') {
-                polygoneEnCours = L.circle([latClic, lngClic], {
-                    radius: porteeMax, color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.4, weight: 1
-                }).addTo(map);
+            // Si on modifie et qu'on n'a PAS cliqué sur "Orienter" (donc anneauxExistantsEdition conservés)
+            if (editionId && anneauxExistantsEdition && anneauxExistantsEdition.length > 0) {
+                polygoneEnCours = [];
+                anneauxExistantsEdition.forEach(ring => {
+                    let poly = L.polygon(ring, {
+                        color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.5, weight: 1
+                    }).addTo(map);
+                    polygoneEnCours.push(poly);
+                });
             } else {
-                let angleVue = (typeVue === 'Dôme') ? 110 : 70;
-                let coordsSecteur = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
-                polygoneEnCours = L.polygon(coordsSecteur, {
-                    color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.5, weight: 1
-                }).addTo(map);
+                // Sinon (création ou réorientation complète), on régénère le cône/cercle de base
+                if (typeVue === '360') {
+                    polygoneEnCours = L.circle([latClic, lngClic], {
+                        radius: porteeMax, color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.4, weight: 1
+                    }).addTo(map);
+                } else {
+                    let angleVue = (typeVue === 'Dôme') ? 110 : 70;
+                    let coordsSecteur = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
+                    polygoneEnCours = L.polygon(coordsSecteur, {
+                        color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.5, weight: 1
+                    }).addTo(map);
+                }
             }
         }
 
@@ -689,7 +725,14 @@
             orientationFaite = true;
             verifierActivationBouton();
             if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
-            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            if (polygoneEnCours) {
+                if (Array.isArray(polygoneEnCours)) {
+                    polygoneEnCours.forEach(p => map.removeLayer(p));
+                } else {
+                    map.removeLayer(polygoneEnCours);
+                }
+                polygoneEnCours = null;
+            }
             document.getElementById('modalForm').style.display = 'flex';
         }
 
@@ -729,7 +772,14 @@
         function fermerTraceObstacleDefinitif() {
             modeTraceEnCours = false;
             document.getElementById('floatingActionControls').style.display = 'none';
-            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            if (polygoneEnCours) {
+                if (Array.isArray(polygoneEnCours)) {
+                    polygoneEnCours.forEach(p => map.removeLayer(p));
+                } else {
+                    map.removeLayer(polygoneEnCours);
+                }
+                polygoneEnCours = null;
+            }
             document.getElementById('modalForm').style.display = 'flex';
         }
 
@@ -741,7 +791,14 @@
             document.getElementById('floatingActionControls').style.display = 'none';
             if (polygoneTraceTemp) { map.removeLayer(polygoneTraceTemp); polygoneTraceTemp = null; }
             if (markerTemporaire) { map.removeLayer(markerTemporaire); markerTemporaire = null; }
-            if (polygoneEnCours) { map.removeLayer(polygoneEnCours); polygoneEnCours = null; }
+            if (polygoneEnCours) {
+                if (Array.isArray(polygoneEnCours)) {
+                    polygoneEnCours.forEach(p => map.removeLayer(p));
+                } else {
+                    map.removeLayer(polygoneEnCours);
+                }
+                polygoneEnCours = null;
+            }
             document.getElementById('modalForm').style.display = 'flex';
         }
 
@@ -753,18 +810,30 @@
             let currentFeature;
             let camPoint = [lngClic, latClic];
 
-            if (typeVue === '360') {
-                let options = { steps: 64, units: 'meters' };
-                let circle = turf.circle(camPoint, porteeMax, options);
-                currentFeature = turf.polygon(circle.geometry.coordinates);
+            // Si on édite et qu'on a gardé les anneaux (pas de réorientation), on part de la forme déjà rognée
+            if (editionId && anneauxExistantsEdition && anneauxExistantsEdition.length > 0) {
+                let multiCoords = anneauxExistantsEdition.map(ring => {
+                    let coords = ring.map(c => [c[1], c[0]]);
+                    if (coords.length > 0 && (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1])) {
+                        coords.push(coords[0]);
+                    }
+                    return [coords];
+                });
+                currentFeature = multiCoords.length > 1 ? turf.multiPolygon(multiCoords) : turf.polygon(multiCoords[0]);
             } else {
-                let angleVue = (typeVue === 'Dôme') ? 110 : 70;
-                let rawCoords = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
-                let turfCoords = rawCoords.map(c => [c[1], c[0]]);
-                if (turfCoords.length > 0 && (turfCoords[0][0] !== turfCoords[turfCoords.length - 1][0] || turfCoords[0][1] !== turfCoords[turfCoords.length - 1][1])) {
-                    turfCoords.push(turfCoords[0]);
+                if (typeVue === '360') {
+                    let options = { steps: 64, units: 'meters' };
+                    let circle = turf.circle(camPoint, porteeMax, options);
+                    currentFeature = turf.polygon(circle.geometry.coordinates);
+                } else {
+                    let angleVue = (typeVue === 'Dôme') ? 110 : 70;
+                    let rawCoords = genererSecteur([latClic, lngClic], porteeMax, orientationActuelle, angleVue);
+                    let turfCoords = rawCoords.map(c => [c[1], c[0]]);
+                    if (turfCoords.length > 0 && (turfCoords[0][0] !== turfCoords[turfCoords.length - 1][0] || turfCoords[0][1] !== turfCoords[turfCoords.length - 1][1])) {
+                        turfCoords.push(turfCoords[0]);
+                    }
+                    currentFeature = turf.polygon([turfCoords]);
                 }
-                currentFeature = turf.polygon([turfCoords]);
             }
 
             obstaclesManuels.forEach(obs => {
@@ -825,6 +894,7 @@
             rafraichirCarteComplete();
             obstaclesManuels = [];
             editionId = null;
+            anneauxExistantsEdition = [];
             document.getElementById('commentaire').value = '';
             fermerModal();
         }
@@ -974,6 +1044,9 @@
             lngClic = point.lng;
             orientationActuelle = point.direction;
             orientationFaite = true;
+            
+            // On récupère les polygones déjà découpés existants pour les préserver
+            anneauxExistantsEdition = point.anneaux_finaux || [];
 
             document.getElementById('modalTitle').innerText = 'Modifier la cam';
             document.getElementById('typeVue').value = point.type_vue;
