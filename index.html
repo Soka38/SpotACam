@@ -386,14 +386,18 @@
 
         var markersGroup = [];
         var editionId = null;
-        var anneauxExistantsEdition = []; // Stocke les polygones déjà découpés lors d'une modification
+        var anneauxExistantsEdition = [];
 
         var roleActuel = sessionStorage.getItem('roleUser') || 'public';
         mettreAJourInterfaceRole();
 
         async function demanderConnexion() {
-            if (roleActuel !== 'public') {
+            // Vérifier si une session Supabase est déjà active pour déconnexion
+            const { data: { session } } = await _supabase.auth.getSession();
+
+            if (session || roleActuel !== 'public') {
                 if (confirm("Voulez-vous vous déconnecter ?")) {
+                    await _supabase.auth.signOut();
                     sessionStorage.removeItem('roleUser');
                     roleActuel = 'public';
                     mettreAJourInterfaceRole();
@@ -407,21 +411,41 @@
             if (!code) return;
 
             var inputHash = await hashPassword(code);
+            let emailAdmin = "";
+            let roleAssigne = "";
 
             if (inputHash === HASH_SU2) {
-                sessionStorage.setItem('roleUser', 'su2');
-                roleActuel = 'su2';
-                alert("Connecté en tant que Superutilisateur 2.");
-                rafraichirCarteComplete();
+                emailAdmin = 'admin@spotacam.local';
+                roleAssigne = 'su2';
             } else if (inputHash === HASH_SU1) {
-                sessionStorage.setItem('roleUser', 'su1');
-                roleActuel = 'su1';
-                rafraichirCarteComplete();
-                alerterSignalements();
+                emailAdmin = 'superadmin@spotacam.local';
+                roleAssigne = 'su1';
             } else {
                 alert("Code incorrect.");
+                return;
             }
+
+            // Authentification sécurisée auprès de Supabase
+            const { data, error } = await _supabase.auth.signInWithPassword({
+                email: emailAdmin,
+                password: code
+            });
+
+            if (error) {
+                alert("Erreur de connexion Supabase : " + error.message);
+                return;
+            }
+
+            sessionStorage.setItem('roleUser', roleAssigne);
+            roleActuel = roleAssigne;
             mettreAJourInterfaceRole();
+            rafraichirCarteComplete();
+
+            if (roleActuel === 'su2') {
+                alert("Connecté en tant que Superutilisateur 2 (Admin).");
+            } else if (roleActuel === 'su1') {
+                alerterSignalements();
+            }
         }
 
         function mettreAJourInterfaceRole() {
@@ -661,8 +685,6 @@
             document.getElementById('modalForm').style.display = 'none';
             modeOrientationInteractiva = true;
             enTrainDeGlisser = false;
-            
-            // Si on choisit de réorienter, on efface la découpe précédente pour repartir d'un cône neuf
             anneauxExistantsEdition = [];
 
             map.dragging.disable();
@@ -691,7 +713,6 @@
                 polygoneEnCours = null;
             }
 
-            // Si on modifie et qu'on n'a PAS cliqué sur "Orienter" (donc anneauxExistantsEdition conservés)
             if (editionId && anneauxExistantsEdition && anneauxExistantsEdition.length > 0) {
                 polygoneEnCours = [];
                 anneauxExistantsEdition.forEach(ring => {
@@ -701,7 +722,6 @@
                     polygoneEnCours.push(poly);
                 });
             } else {
-                // Sinon (création ou réorientation complète), on régénère le cône/cercle de base
                 if (typeVue === '360') {
                     polygoneEnCours = L.circle([latClic, lngClic], {
                         radius: porteeMax, color: '#e74c3c', fillColor: '#f1948a', fillOpacity: 0.4, weight: 1
@@ -810,7 +830,6 @@
             let currentFeature;
             let camPoint = [lngClic, latClic];
 
-            // Si on édite et qu'on a gardé les anneaux (pas de réorientation), on part de la forme déjà rognée
             if (editionId && anneauxExistantsEdition && anneauxExistantsEdition.length > 0) {
                 let multiCoords = anneauxExistantsEdition.map(ring => {
                     let coords = ring.map(c => [c[1], c[0]]);
@@ -1044,8 +1063,6 @@
             lngClic = point.lng;
             orientationActuelle = point.direction;
             orientationFaite = true;
-            
-            // On récupère les polygones déjà découpés existants pour les préserver
             anneauxExistantsEdition = point.anneaux_finaux || [];
 
             document.getElementById('modalTitle').innerText = 'Modifier la cam';
@@ -1068,7 +1085,7 @@
             }
         }
 
-        // Lancement initial sans await global
+        // Lancement initial
         chargerPointsSauvegardes();
     </script>
 </body>
