@@ -980,6 +980,7 @@
         async function chargerPointsSauvegardes() {
             var { data: pointsStockes, error } = await _supabase.from('cameras').select('*');
             if (error) { console.error("Erreur chargement Supabase", error); return; }
+            document.getElementById('camCountText').innerText = pointsStockes.length;
             
             pointsStockes.forEach(function(point) {
                 afficherPointDepuisStockage(point);
